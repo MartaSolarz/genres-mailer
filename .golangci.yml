@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - nlreturn
+    - revive
+    - unconvert
+    - whitespace
+    - wrapcheck
+    - wsl_v5
+  settings:
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+    wrapcheck:
+      ignoreSigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - wrapcheck
+          - wsl_v5
+          - nlreturn
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
