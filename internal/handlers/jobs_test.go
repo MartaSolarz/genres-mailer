@@ -50,7 +50,7 @@ func (f *fakeMailer) SendPassword(_, password string) error {
 	return f.pwErr
 }
 
-func newJobServer(t *testing.T) (*httptest.Server, *store.Store, *fakeMailer) {
+func newJobServer(t *testing.T) (*httptest.Server, *store.Store, *fakeMailer, string) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -100,7 +100,7 @@ func newJobServer(t *testing.T) (*httptest.Server, *store.Store, *fakeMailer) {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
-	return ts, st, mailer
+	return ts, st, mailer, dir
 }
 
 func loginClient(t *testing.T, base, user string) (*http.Client, string) {
@@ -180,7 +180,7 @@ func decodeJSON(t *testing.T, resp *http.Response) map[string]any {
 }
 
 func TestJobFullFlow(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
@@ -233,7 +233,7 @@ func TestJobFullFlow(t *testing.T) {
 }
 
 func TestJobSharedAccess(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -262,7 +262,7 @@ func TestJobSharedAccess(t *testing.T) {
 }
 
 func TestJobDelete(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -303,7 +303,7 @@ func TestJobDelete(t *testing.T) {
 }
 
 func TestJobDeleteRequiresCSRF(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -330,7 +330,7 @@ func TestJobDeleteRequiresCSRF(t *testing.T) {
 }
 
 func TestJobRejectsNonPDF(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", "to nie jest PDF")
@@ -346,7 +346,7 @@ func TestJobRejectsNonPDF(t *testing.T) {
 }
 
 func TestJobUploadRequiresCSRF(t *testing.T) {
-	ts, _, _ := newJobServer(t)
+	ts, _, _, _ := newJobServer(t)
 	client, _ := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, "", "PROBKA-001", minimalPDF)
@@ -376,7 +376,7 @@ func sendReq(t *testing.T, client *http.Client, base, uuid, csrf string) *http.R
 }
 
 func TestJobSendHappyPath(t *testing.T) {
-	ts, _, mailer := newJobServer(t)
+	ts, _, mailer, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
@@ -423,7 +423,7 @@ func TestJobSendHappyPath(t *testing.T) {
 }
 
 func TestJobSendPasswordFailureThenRetry(t *testing.T) {
-	ts, _, mailer := newJobServer(t)
+	ts, _, mailer, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
@@ -468,7 +468,7 @@ func TestJobSendPasswordFailureThenRetry(t *testing.T) {
 }
 
 func TestJobSentIsReadOnly(t *testing.T) {
-	ts, st, _ := newJobServer(t)
+	ts, st, _, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
