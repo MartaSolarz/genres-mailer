@@ -36,6 +36,12 @@ linters:
         text: "G304|G703|G115"
         linters:
           - gosec
+      # Ścieżki plików budowane z serwerowych UUID w obrębie DATA_DIR,
+      # nie z danych wejściowych użytkownika.
+      - path: internal/handlers/jobs.go
+        text: "G304|G703"
+        linters:
+          - gosec
 
 formatters:
   enable:

@@ -25,6 +25,7 @@ type Config struct {
 
 	FileRetention time.Duration
 	MaxUploadMB   int64
+	MaxJobsPerDay int
 }
 
 func Load() (*Config, error) {
@@ -112,6 +113,17 @@ func Load() (*Config, error) {
 	}
 
 	c.MaxUploadMB = int64(maxUpload)
+
+	maxJobs, err := getEnvIntDefault("MAX_JOBS_PER_DAY", 200)
+	if err != nil {
+		return nil, err
+	}
+
+	if maxJobs <= 0 {
+		return nil, fmt.Errorf("MAX_JOBS_PER_DAY musi być dodatnie")
+	}
+
+	c.MaxJobsPerDay = maxJobs
 
 	return c, nil
 }

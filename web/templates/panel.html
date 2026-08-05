@@ -6,14 +6,113 @@
     <title>Panel</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-    <main class="card">
-        <h1>Panel</h1>
-        <p>Zalogowano jako <strong>{{.Username}}</strong>.</p>
-        <form method="POST" action="/logout">
-            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-            <button type="submit">Wyloguj</button>
-        </form>
+<body class="has-panel" data-csrf="{{.CSRFToken}}" data-user="{{.Username}}">
+    <header class="topbar">
+        <span class="topbar-title">Wysyłka zaszyfrowanych wyników</span>
+        <span class="topbar-user">
+            <span class="topbar-name">{{.Username}}</span>
+            <form method="POST" action="/logout" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <button type="submit" class="btn-link">Wyloguj</button>
+            </form>
+        </span>
+    </header>
+
+    <main class="panel">
+        <div class="panel-top">
+            <section class="card">
+                <div class="card-head">
+                    <h1>Nowy dokument</h1>
+                    <button type="button" id="resetBtn" class="btn-ghost">Wyczyść</button>
+                </div>
+
+                <label for="sample">Próbka (odbiorca)</label>
+                <div class="autocomplete">
+                    <input type="text" id="sample" name="sample_id" autocomplete="off"
+                           placeholder="Wpisz ID próbki…" role="combobox"
+                           aria-autocomplete="list" aria-expanded="false" aria-controls="sampleOptions">
+                    <ul id="sampleOptions" class="autocomplete-list hidden" role="listbox"></ul>
+                </div>
+                <template id="sampleData">
+                    {{range .Samples}}
+                    <span data-id="{{.SampleID}}" data-masked="{{.Masked}}"></span>
+                    {{end}}
+                </template>
+
+                <div id="dropzone" class="dropzone" tabindex="0" role="button"
+                     aria-label="Upuść lub wybierz plik PDF">
+                    <svg class="dropzone-icon" viewBox="0 0 24 24" width="28" height="28" fill="none"
+                         stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                         aria-hidden="true">
+                        <path d="M12 16V4M7 9l5-5 5 5"/>
+                        <path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>
+                    </svg>
+                    <p id="dropzoneText">Przeciągnij plik PDF tutaj lub kliknij, aby wybrać</p>
+                    <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+                </div>
+
+                <button type="button" id="processBtn" class="btn-primary" disabled>Przetwórz</button>
+
+                <p id="status" class="status" role="status"></p>
+            </section>
+
+            <section id="result" class="card hidden">
+                <h2 id="resTitle">Dokument</h2>
+                <p class="result-meta">Próbka <strong id="resSample"></strong> ·
+                    odbiorca <strong id="resRecipient"></strong></p>
+
+                <div class="actions">
+                    <button type="button" id="previewBtn" class="btn-secondary">Podgląd</button>
+                    <button type="button" id="downloadBtn" class="btn-secondary">Pobierz</button>
+                    <button type="button" id="passwordBtn" class="btn-secondary">Pokaż hasło</button>
+                    <button type="button" id="sendBtn" class="btn-primary" disabled
+                            title="Wysyłka e-mail zostanie dodana w kolejnym etapie">Wyślij</button>
+                </div>
+            </section>
+        </div>
+
+        <section class="card">
+            <h2>Historia dokumentów</h2>
+            <div class="table-wrap">
+                <table class="history">
+                    <thead>
+                        <tr>
+                            <th>Próbka</th><th>Dodał</th><th>Status</th><th>Data</th><th class="cell-action">Akcje</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody">
+                        {{range .History}}
+                        <tr data-uuid="{{.UUID}}" data-sample="{{.SampleID}}"
+                            data-recipient="{{.Recipient}}" data-status="{{.StatusRaw}}">
+                            <td>{{.SampleID}}</td>
+                            <td>{{.Username}}</td>
+                            <td><span class="badge badge-{{.StatusRaw}}">{{.Status}}</span></td>
+                            <td class="nowrap">{{.Created}}</td>
+                            <td class="cell-action">
+                                {{if .Actionable}}<button type="button" class="btn-ghost btn-xs js-open">Otwórz</button>{{end}}
+                                {{if .CanDelete}}<button type="button" class="btn-ghost btn-xs btn-danger js-delete">Usuń</button>{{end}}
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr id="historyEmpty"><td colspan="5" class="muted">Brak dokumentów.</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
+
+    <div id="passwordModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
+        <div class="modal-box">
+            <h2 id="pwTitle">Hasło do dokumentu</h2>
+            <code id="pwValue" class="pw-value"></code>
+            <div class="actions">
+                <button type="button" id="copyPwBtn" class="btn-secondary">Kopiuj</button>
+                <button type="button" id="closePwBtn" class="btn-primary">Zamknij</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/panel.js"></script>
 </body>
 </html>
