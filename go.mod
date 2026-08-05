@@ -2,7 +2,11 @@ module github.com/msolarzwebsensa/genres-mailer
 
 go 1.25.12
 
-require modernc.org/sqlite v1.56.0
+require (
+	golang.org/x/crypto v0.54.0
+	golang.org/x/term v0.45.0
+	modernc.org/sqlite v1.56.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

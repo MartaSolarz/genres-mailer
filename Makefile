@@ -1,10 +1,13 @@
-.PHONY: build test vet lint staticcheck govulncheck check run tidy clean
+.PHONY: build test vet lint staticcheck govulncheck check run create-user import-samples tidy clean
 
 BIN_DIR := bin
 
+# Wczytanie zmiennych z .env, jeśli plik istnieje.
+load_env = if [ -f .env ]; then set -a; . ./.env; set +a; fi
+
 build:
 	CGO_ENABLED=0 go build -o $(BIN_DIR)/server ./cmd/server
-	# cmd/admin dodawany w Etapie 2
+	CGO_ENABLED=0 go build -o $(BIN_DIR)/admin ./cmd/admin
 
 test:
 	go test ./...
@@ -24,7 +27,15 @@ govulncheck:
 check: lint test govulncheck
 
 run:
-	go run ./cmd/server
+	@$(load_env); go run ./cmd/server
+
+# Użycie: make create-user USER=genetyk
+create-user:
+	@$(load_env); go run ./cmd/admin create-user $(USER)
+
+# Użycie: make import-samples CSV=testdata/samples.csv
+import-samples:
+	@$(load_env); go run ./cmd/admin import-samples $(CSV)
 
 tidy:
 	go mod tidy

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/msolarzwebsensa/genres-mailer/internal/auth"
 	"github.com/msolarzwebsensa/genres-mailer/internal/config"
 	"github.com/msolarzwebsensa/genres-mailer/internal/handlers"
 	"github.com/msolarzwebsensa/genres-mailer/internal/store"
@@ -40,28 +41,29 @@ func run(logger *slog.Logger) error {
 
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
-		return fmt.Errorf("otwarcie bazy: %w", err)
+		return fmt.Errorf("inicjalizacja bazy danych: %w", err)
 	}
 
 	defer func() { _ = st.Close() }()
 
 	logger.Info("baza otwarta, migracje zastosowane", "db_path", cfg.DBPath)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	sessions := auth.NewSessionStore(cfg.SessionTTL())
+	limiter := auth.NewRateLimiter(5, 15*time.Minute)
 
-	var handler http.Handler = mux
+	srvHandlers, err := handlers.NewServer(cfg, st, sessions, limiter, logger)
+	if err != nil {
+		return fmt.Errorf("inicjalizacja serwera HTTP: %w", err)
+	}
 
-	handler = handlers.SecurityHeaders(handler)
-	handler = handlers.RequestLogger(logger, handler)
+	stopGC := make(chan struct{})
+	go runSessionGC(sessions, stopGC)
+
+	defer close(stopGC)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           handler,
+		Handler:           srvHandlers.Handler(),
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -100,4 +102,18 @@ func run(logger *slog.Logger) error {
 	logger.Info("serwer zamknięty poprawnie")
 
 	return nil
+}
+
+func runSessionGC(sessions *auth.SessionStore, stop <-chan struct{}) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			sessions.GC()
+		case <-stop:
+			return
+		}
+	}
 }

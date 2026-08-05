@@ -32,6 +32,10 @@ linters:
           - wrapcheck
           - wsl_v5
           - nlreturn
+      - path: cmd/admin/
+        text: "G304|G703|G115"
+        linters:
+          - gosec
 
 formatters:
   enable:

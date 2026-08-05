@@ -120,6 +120,10 @@ func (c *Config) MaxUploadBytes() int64 {
 	return c.MaxUploadMB * 1024 * 1024
 }
 
+func (c *Config) SessionTTL() time.Duration {
+	return 8 * time.Hour
+}
+
 func getEnvDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
