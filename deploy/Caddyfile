@@ -1,0 +1,33 @@
+# Konfiguracja Caddy — terminacja TLS i reverse proxy do aplikacji.
+# SITE_ADDRESS pochodzi ze zmiennej środowiskowej (patrz docker-compose.yml / .env).
+#
+# Warianty (odkomentuj właściwy blok tls w zależności od odpowiedzi z UW):
+#
+#  A) Publiczna domena + Let's Encrypt (automatycznie, nic nie trzeba robić):
+#     SITE_ADDRESS=genetyka.wydzial.uw.edu.pl
+#     Caddy sam uzyska i odnowi certyfikat (wymaga dostępu z internetu na 80/443).
+#
+#  B) Certyfikat dostarczony centralnie (DSK):
+#     Zamontuj cert i klucz do kontenera Caddy i odkomentuj `tls` poniżej.
+#
+#  C) Sieć wewnętrzna / brak publicznego dostępu (wewnętrzne CA Caddy):
+#     Ustaw SITE_ADDRESS=https://host.wewnetrzny i odkomentuj `tls internal`.
+
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# --- Wariant B: certyfikat od DSK ---
+	# tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem
+
+	# --- Wariant C: wewnętrzne CA (tylko sieć zamknięta/VPN) ---
+	# tls internal
+
+	# HSTS ustawiamy na terminatorze TLS. Pozostałe nagłówki bezpieczeństwa
+	# (CSP, X-Frame-Options, nosniff, Referrer-Policy) ustawia sama aplikacja.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	reverse_proxy app:8080
+}

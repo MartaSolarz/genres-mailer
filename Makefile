@@ -1,4 +1,4 @@
-.PHONY: build test vet lint staticcheck govulncheck check run create-user set-password import-samples tidy clean
+.PHONY: build test vet lint staticcheck govulncheck check run create-user set-password import-samples tidy clean docker-up docker-down docker-logs docker-admin
 
 BIN_DIR := bin
 
@@ -46,3 +46,21 @@ tidy:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+# --- Docker Compose ---
+
+docker-up:
+	docker compose up -d --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f
+
+# Zarządzanie kontami w wariancie Docker (spójne uprawnienia do wolumenu).
+# Przykłady:
+#   make docker-admin ARGS="create-user genetyk"
+#   make docker-admin ARGS="import-samples /data/samples.csv"
+docker-admin:
+	docker compose run --rm --entrypoint /admin app $(ARGS)

@@ -1,0 +1,19 @@
+# Sekrety i dane — NIGDY do obrazu
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-*
+*.pdf
+
+# Artefakty
+bin/
+/out/
+
+# Repo / IDE
+.git/
+.github/
+.idea/
+*.md
+!README.md

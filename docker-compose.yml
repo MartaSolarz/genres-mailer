@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # W kontenerze aplikacja musi nasłuchiwać na wszystkich interfejsach
+      # sieci wewnętrznej Dockera (dociera do niej tylko Caddy), a NIE na 127.0.0.1.
+      # Portów aplikacji nie publikujemy — brak dostępu z hosta/internetu.
+      LISTEN_ADDR: "0.0.0.0:8080"
+      DB_PATH: "/data/app.db"
+      DATA_DIR: "/data"
+    volumes:
+      - data:/data
+    # Brak sekcji ports — aplikacja jest dostępna wyłącznie przez sieć wewnętrzną.
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

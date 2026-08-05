@@ -1,0 +1,55 @@
+[Unit]
+Description=Genres Mailer — wysyłka zaszyfrowanych wyników badań genetycznych
+Documentation=https://github.com/msolarzwebsensa/genres-mailer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/genres-mailer-server
+EnvironmentFile=/etc/genres-mailer/env
+WorkingDirectory=/var/lib/genres-mailer
+
+# Stały użytkownik systemowy (utwórz: useradd --system --home /var/lib/genres-mailer \
+#   --shell /usr/sbin/nologin genres-mailer). Zapewnia spójne uprawnienia do bazy
+# oraz umożliwia proste zarządzanie kontami: sudo -u genres-mailer genres-mailer-admin ...
+User=genres-mailer
+Group=genres-mailer
+
+# Alternatywa zgodna z pierwotnym planem (DynamicUser=yes) — użyj, jeśli konta
+# tworzysz wyłącznie przez Dockera, a nie lokalnym CLI:
+#   DynamicUser=yes
+#   StateDirectory=genres-mailer
+
+Restart=on-failure
+RestartSec=5
+
+# --- Hardening ---
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# Jedyny zapisywalny katalog to katalog danych aplikacji.
+ReadWritePaths=/var/lib/genres-mailer
+
+[Install]
+WantedBy=multi-user.target
