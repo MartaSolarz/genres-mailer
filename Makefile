@@ -1,4 +1,4 @@
-.PHONY: build test vet lint staticcheck govulncheck check run create-user import-samples tidy clean
+.PHONY: build test vet lint staticcheck govulncheck check run create-user set-password import-samples tidy clean
 
 BIN_DIR := bin
 
@@ -32,6 +32,10 @@ run:
 # Użycie: make create-user USER=genetyk
 create-user:
 	@$(load_env); go run ./cmd/admin create-user $(USER)
+
+# Użycie: make set-password USER=genetyk
+set-password:
+	@$(load_env); go run ./cmd/admin set-password $(USER)
 
 # Użycie: make import-samples CSV=testdata/samples.csv
 import-samples:

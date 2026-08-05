@@ -1,10 +1,14 @@
 :root {
-    color-scheme: light dark;
-    --bg: #f4f5f7;
+    color-scheme: light;
+    --bg: #eef1f5;
     --fg: #1f2328;
+    --muted: #6b7280;
     --card: #ffffff;
+    --field: #ffffff;
     --border: #d0d7de;
     --accent: #1f6feb;
+    --accent-hover: #1a5fd0;
+    --focus-ring: rgba(31, 111, 235, 0.25);
     --error: #cf222e;
 }
 
@@ -52,11 +56,63 @@ input[type="password"] {
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 1rem;
-    background: var(--bg);
+    background: var(--field);
     color: var(--fg);
 }
 
-button {
+input[type="text"]:focus,
+input[type="password"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.password-field {
+    position: relative;
+}
+
+.password-field input {
+    padding-right: 2.75rem;
+}
+
+.password-field .toggle-password {
+    position: absolute;
+    top: 0;
+    right: 0;
+    margin: 0;
+    width: 2.75rem;
+    height: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease;
+}
+
+.password-field .toggle-password:hover,
+.password-field .toggle-password:focus-visible {
+    filter: none;
+    color: var(--accent);
+    outline: none;
+}
+
+.password-field .toggle-password .icon-eye-off {
+    display: none;
+}
+
+.password-field .toggle-password.revealed .icon-eye {
+    display: none;
+}
+
+.password-field .toggle-password.revealed .icon-eye-off {
+    display: block;
+}
+
+button[type="submit"] {
     margin-top: 1.5rem;
     width: 100%;
     padding: 0.6rem;
@@ -67,10 +123,11 @@ button {
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
+    transition: background 0.15s ease;
 }
 
-button:hover {
-    filter: brightness(1.05);
+button[type="submit"]:hover {
+    background: var(--accent-hover);
 }
 
 .error {

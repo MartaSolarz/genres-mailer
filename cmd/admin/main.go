@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/msolarzwebsensa/genres-mailer/internal/config"
 	"github.com/msolarzwebsensa/genres-mailer/internal/store"
@@ -20,6 +21,8 @@ import (
 var stdinReader = bufio.NewReader(os.Stdin)
 
 func main() {
+	syscall.Umask(0o077)
+
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "błąd:", err)
 		os.Exit(1)
@@ -50,6 +53,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "create-user":
 		return createUser(ctx, st, args[1:])
+	case "set-password":
+		return setPassword(ctx, st, args[1:])
 	case "disable-user":
 		return setDisabled(ctx, st, args[1:], true)
 	case "enable-user":
@@ -66,6 +71,7 @@ func run(args []string) error {
 func usage() {
 	fmt.Fprintln(os.Stderr, `Użycie:
   admin create-user <username>       — utwórz użytkownika (hasło z prompta)
+  admin set-password <username>      — zmień hasło użytkownika (hasło z prompta)
   admin disable-user <username>      — zablokuj użytkownika
   admin enable-user <username>       — odblokuj użytkownika
   admin import-samples <plik.csv>    — import próbek (CSV: sample_id,email)`)
@@ -96,6 +102,39 @@ func createUser(ctx context.Context, st *store.Store, args []string) error {
 	}
 
 	fmt.Printf("Utworzono użytkownika %q.\n", username)
+
+	return nil
+}
+
+func setPassword(ctx context.Context, st *store.Store, args []string) error {
+	if len(args) != 1 {
+		return errors.New("użycie: set-password <username>")
+	}
+
+	username := strings.TrimSpace(args[0])
+	if username == "" {
+		return errors.New("nazwa użytkownika nie może być pusta")
+	}
+
+	password, err := promptPassword()
+	if err != nil {
+		return err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return fmt.Errorf("haszowanie hasła: %w", err)
+	}
+
+	if err := st.UpdatePassword(ctx, username, string(hash)); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("użytkownik %q nie istnieje", username)
+		}
+
+		return fmt.Errorf("zmiana hasła użytkownika %q: %w", username, err)
+	}
+
+	fmt.Printf("Zmieniono hasło użytkownika %q.\n", username)
 
 	return nil
 }

@@ -51,6 +51,27 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, 
 	return &u, nil
 }
 
+func (s *Store) UpdatePassword(ctx context.Context, username, passwordHash string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ? WHERE username = ?`,
+		passwordHash, username,
+	)
+	if err != nil {
+		return fmt.Errorf("zmiana hasła: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("liczba zmienionych wierszy: %w", err)
+	}
+
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
 func (s *Store) SetUserDisabled(ctx context.Context, username string, disabled bool) error {
 	val := 0
 	if disabled {

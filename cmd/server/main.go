@@ -18,6 +18,8 @@ import (
 )
 
 func main() {
+	syscall.Umask(0o077)
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -26,6 +27,12 @@ func Open(dbPath string) (*Store, error) {
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping bazy: %w", err)
+	}
+
+	if err := os.Chmod(dbPath, 0o600); err != nil {
+		_ = db.Close()
+
+		return nil, fmt.Errorf("ustawienie uprawnień bazy: %w", err)
 	}
 
 	s := &Store{db: db}
