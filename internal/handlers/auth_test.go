@@ -51,7 +51,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	limiter := auth.NewRateLimiter(5, 15*time.Minute)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	srv, err := handlers.NewServer(cfg, st, sessions, limiter, logger)
+	srv, err := handlers.NewServer(cfg, st, sessions, limiter, &fakeMailer{}, logger)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

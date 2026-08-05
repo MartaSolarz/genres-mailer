@@ -21,6 +21,7 @@
     var previewBtn = document.getElementById("previewBtn");
     var downloadBtn = document.getElementById("downloadBtn");
     var passwordBtn = document.getElementById("passwordBtn");
+    var sendBtn = document.getElementById("sendBtn");
 
     var modal = document.getElementById("passwordModal");
     var pwValue = document.getElementById("pwValue");
@@ -130,13 +131,58 @@
         historyBody.insertBefore(tr, historyBody.firstChild);
     }
 
-    function openJob(uuid, sampleID, recipient, title) {
+    function configureActions(status) {
+        var actionable = status === "encrypted" || status === "partial";
+        previewBtn.disabled = !actionable;
+        downloadBtn.disabled = !actionable;
+        passwordBtn.disabled = !actionable;
+        sendBtn.disabled = !actionable;
+        sendBtn.textContent = status === "partial" ? "Ponów wysłanie hasła" : "Wyślij";
+    }
+
+    function openJob(uuid, sampleID, recipient, title, status) {
         currentJob = uuid;
         resTitle.textContent = title;
         resSample.textContent = sampleID;
         resRecipient.textContent = recipient || "—";
+        configureActions(status);
         result.classList.remove("hidden");
         result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function findRow(uuid) {
+        return historyBody.querySelector('tr[data-uuid="' + uuid + '"]');
+    }
+
+    function setRowBadge(row, statusClass, label) {
+        var badge = row.querySelector(".badge");
+        if (badge) {
+            badge.className = "badge badge-" + statusClass;
+            badge.textContent = label;
+        }
+    }
+
+    function markRowSent(uuid) {
+        var row = findRow(uuid);
+        if (!row) {
+            return;
+        }
+
+        row.setAttribute("data-status", "sent");
+        setRowBadge(row, "sent", "Wysłany");
+
+        var cell = row.querySelector(".cell-action");
+        if (cell) {
+            cell.innerHTML = "";
+        }
+    }
+
+    function markRowPartial(uuid) {
+        var row = findRow(uuid);
+        if (row) {
+            row.setAttribute("data-status", "partial");
+            setRowBadge(row, "partial", "Wysyłka niepełna");
+        }
     }
 
     var optionsList = document.getElementById("sampleOptions");
@@ -274,7 +320,7 @@
         if (openBtn) {
             var row = openBtn.closest("tr");
             openJob(row.getAttribute("data-uuid"), row.getAttribute("data-sample"),
-                row.getAttribute("data-recipient"), "Dokument");
+                row.getAttribute("data-recipient"), "Dokument", row.getAttribute("data-status"));
             return;
         }
 
@@ -398,6 +444,7 @@
             resTitle.textContent = "Dokument gotowy";
             resSample.textContent = r.data.sample_id;
             resRecipient.textContent = r.data.recipient_masked;
+            configureActions("encrypted");
             result.classList.remove("hidden");
             prependHistory(r.data.job_uuid, r.data.sample_id, r.data.recipient_masked);
             setStatus("Dokument został zaszyfrowany.");
@@ -421,6 +468,48 @@
         }
 
         window.location.href = "/api/jobs/" + currentJob + "/download";
+    });
+
+    sendBtn.addEventListener("click", function () {
+        if (!currentJob) {
+            return;
+        }
+
+        var job = currentJob;
+        sendBtn.disabled = true;
+        setStatus("Wysyłanie…");
+
+        fetch("/api/jobs/" + job + "/send", {
+            method: "POST",
+            headers: { "X-CSRF-Token": csrf }
+        }).then(function (resp) {
+            return resp.json().then(function (data) {
+                return { ok: resp.ok, data: data };
+            });
+        }).then(function (r) {
+            if (r.ok && r.data.status === "sent") {
+                markRowSent(job);
+                previewBtn.disabled = true;
+                downloadBtn.disabled = true;
+                passwordBtn.disabled = true;
+                sendBtn.disabled = true;
+                resTitle.textContent = "Dokument wysłany";
+                setStatus("Wysłano dokument i hasło do odbiorcy.");
+                return;
+            }
+
+            setStatus(r.data.error || "Nie udało się wysłać.", true);
+
+            if (r.data.stage === "password") {
+                markRowPartial(job);
+                sendBtn.textContent = "Ponów wysłanie hasła";
+            }
+
+            sendBtn.disabled = false;
+        }).catch(function () {
+            setStatus("Błąd połączenia z serwerem.", true);
+            sendBtn.disabled = false;
+        });
     });
 
     passwordBtn.addEventListener("click", function () {

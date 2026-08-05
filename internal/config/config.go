@@ -23,6 +23,8 @@ type Config struct {
 	SMTPPass string
 	SMTPFrom string
 
+	OrgName string
+
 	FileRetention time.Duration
 	MaxUploadMB   int64
 	MaxJobsPerDay int
@@ -92,6 +94,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("SMTP_FROM nie wygląda na adres e-mail: %q", c.SMTPFrom)
 	}
 
+	c.OrgName = getEnvDefault("ORG_NAME", "Gluchoniemcy - badania genetyczne")
+
 	retHours, err := getEnvIntDefault("FILE_RETENTION_HOURS", 72)
 	if err != nil {
 		return nil, err
@@ -134,6 +138,10 @@ func (c *Config) MaxUploadBytes() int64 {
 
 func (c *Config) SessionTTL() time.Duration {
 	return 8 * time.Hour
+}
+
+func (c *Config) SMTPTimeout() time.Duration {
+	return 15 * time.Second
 }
 
 func getEnvDefault(key, def string) string {

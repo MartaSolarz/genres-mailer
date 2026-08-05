@@ -98,6 +98,73 @@ func (s *Store) MarkJobSent(ctx context.Context, uuid string, sentAt time.Time) 
 	return nil
 }
 
+func (s *Store) UpdateJobStatus(ctx context.Context, uuid, status string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET status = ? WHERE uuid = ?`, status, uuid)
+	if err != nil {
+		return fmt.Errorf("zmiana statusu joba: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("liczba zmienionych wierszy: %w", err)
+	}
+
+	if n == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+type ExpiredJob struct {
+	UUID          string
+	EncryptedPath string
+	Status        string
+}
+
+func (s *Store) ListExpired(ctx context.Context, now time.Time) ([]ExpiredJob, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT uuid, COALESCE(encrypted_path, ''), status
+		 FROM jobs
+		 WHERE expires_at < ? AND (encrypted_path IS NOT NULL OR password_encrypted IS NOT NULL)`,
+		now.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("lista jobów do sprzątania: %w", err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var out []ExpiredJob
+
+	for rows.Next() {
+		var e ExpiredJob
+		if err := rows.Scan(&e.UUID, &e.EncryptedPath, &e.Status); err != nil {
+			return nil, fmt.Errorf("odczyt joba do sprzątania: %w", err)
+		}
+
+		out = append(out, e)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iteracja jobów do sprzątania: %w", err)
+	}
+
+	return out, nil
+}
+
+func (s *Store) MarkCleaned(ctx context.Context, uuid, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE jobs SET encrypted_path = NULL, password_encrypted = NULL, status = ? WHERE uuid = ?`,
+		status, uuid,
+	)
+	if err != nil {
+		return fmt.Errorf("oznaczenie joba jako posprzątany: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Store) DeleteJob(ctx context.Context, uuid string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM jobs WHERE uuid = ?`, uuid)
 	if err != nil {

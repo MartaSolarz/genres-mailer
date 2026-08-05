@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -28,7 +29,28 @@ const minimalPDF = "%PDF-1.4\n" +
 	"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\n" +
 	"trailer<</Size 4/Root 1 0 R>>\n%%EOF\n"
 
-func newJobServer(t *testing.T) (*httptest.Server, *store.Store) {
+type fakeMailer struct {
+	docErr       error
+	pwErr        error
+	docCalls     int
+	pwCalls      int
+	lastPassword string
+}
+
+func (f *fakeMailer) SendDocument(_ string, _ []byte, _ string) error {
+	f.docCalls++
+
+	return f.docErr
+}
+
+func (f *fakeMailer) SendPassword(_, password string) error {
+	f.pwCalls++
+	f.lastPassword = password
+
+	return f.pwErr
+}
+
+func newJobServer(t *testing.T) (*httptest.Server, *store.Store, *fakeMailer) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -68,8 +90,9 @@ func newJobServer(t *testing.T) (*httptest.Server, *store.Store) {
 	sessions := auth.NewSessionStore(time.Hour)
 	limiter := auth.NewRateLimiter(5, 15*time.Minute)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mailer := &fakeMailer{}
 
-	srv, err := handlers.NewServer(cfg, st, sessions, limiter, logger)
+	srv, err := handlers.NewServer(cfg, st, sessions, limiter, mailer, logger)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -77,7 +100,7 @@ func newJobServer(t *testing.T) (*httptest.Server, *store.Store) {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 
-	return ts, st
+	return ts, st, mailer
 }
 
 func loginClient(t *testing.T, base, user string) (*http.Client, string) {
@@ -157,7 +180,7 @@ func decodeJSON(t *testing.T, resp *http.Response) map[string]any {
 }
 
 func TestJobFullFlow(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
@@ -210,7 +233,7 @@ func TestJobFullFlow(t *testing.T) {
 }
 
 func TestJobSharedAccess(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -239,7 +262,7 @@ func TestJobSharedAccess(t *testing.T) {
 }
 
 func TestJobDelete(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -280,7 +303,7 @@ func TestJobDelete(t *testing.T) {
 }
 
 func TestJobDeleteRequiresCSRF(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 
 	clientA, csrfA := loginClient(t, ts.URL, "userA")
 
@@ -307,7 +330,7 @@ func TestJobDeleteRequiresCSRF(t *testing.T) {
 }
 
 func TestJobRejectsNonPDF(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", "to nie jest PDF")
@@ -323,7 +346,7 @@ func TestJobRejectsNonPDF(t *testing.T) {
 }
 
 func TestJobUploadRequiresCSRF(t *testing.T) {
-	ts, _ := newJobServer(t)
+	ts, _, _ := newJobServer(t)
 	client, _ := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, "", "PROBKA-001", minimalPDF)
@@ -338,8 +361,114 @@ func TestJobUploadRequiresCSRF(t *testing.T) {
 	}
 }
 
+func sendReq(t *testing.T, client *http.Client, base, uuid, csrf string) *http.Response {
+	t.Helper()
+
+	req, _ := http.NewRequest(http.MethodPost, base+"/api/jobs/"+uuid+"/send", nil)
+	req.Header.Set("X-CSRF-Token", csrf)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST send: %v", err)
+	}
+
+	return resp
+}
+
+func TestJobSendHappyPath(t *testing.T) {
+	ts, _, mailer := newJobServer(t)
+	client, csrf := loginClient(t, ts.URL, "userA")
+
+	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	jobUUID, _ := decodeJSON(t, resp)["job_uuid"].(string)
+
+	sendResp := sendReq(t, client, ts.URL, jobUUID, csrf)
+	if sendResp.StatusCode != http.StatusOK {
+		t.Fatalf("send oczekiwano 200, otrzymano %d", sendResp.StatusCode)
+	}
+
+	if status, _ := decodeJSON(t, sendResp)["status"].(string); status != "sent" {
+		t.Fatalf("status = %q, oczekiwano sent", status)
+	}
+
+	if mailer.docCalls != 1 || mailer.pwCalls != 1 {
+		t.Fatalf("oczekiwano 1 dokument + 1 hasło, otrzymano doc=%d pw=%d", mailer.docCalls, mailer.pwCalls)
+	}
+
+	if len(mailer.lastPassword) != 16 {
+		t.Fatalf("hasło wysłane mailem powinno mieć 16 znaków, ma %d", len(mailer.lastPassword))
+	}
+
+	after := sendReq(t, client, ts.URL, jobUUID, csrf)
+	_ = after.Body.Close()
+
+	if after.StatusCode != http.StatusConflict {
+		t.Fatalf("ponowna wysyłka wysłanego: oczekiwano 409, otrzymano %d", after.StatusCode)
+	}
+
+	pw, err := client.Get(ts.URL + "/api/jobs/" + jobUUID + "/password")
+	if err != nil {
+		t.Fatalf("GET password: %v", err)
+	}
+
+	_ = pw.Body.Close()
+
+	if pw.StatusCode != http.StatusForbidden {
+		t.Fatalf("po wysłaniu hasło powinno być zablokowane (403), otrzymano %d", pw.StatusCode)
+	}
+}
+
+func TestJobSendPasswordFailureThenRetry(t *testing.T) {
+	ts, _, mailer := newJobServer(t)
+	client, csrf := loginClient(t, ts.URL, "userA")
+
+	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	jobUUID, _ := decodeJSON(t, resp)["job_uuid"].(string)
+
+	mailer.pwErr = errors.New("SMTP padło")
+
+	first := sendReq(t, client, ts.URL, jobUUID, csrf)
+	if first.StatusCode != http.StatusBadGateway {
+		t.Fatalf("częściowy błąd: oczekiwano 502, otrzymano %d", first.StatusCode)
+	}
+
+	if stage, _ := decodeJSON(t, first)["stage"].(string); stage != "password" {
+		t.Fatalf("stage = %q, oczekiwano password", stage)
+	}
+
+	if mailer.docCalls != 1 {
+		t.Fatalf("dokument powinien pójść raz, doc=%d", mailer.docCalls)
+	}
+
+	// Ponowienie — tylko hasło, dokument nie jest wysyłany ponownie.
+	mailer.pwErr = nil
+
+	second := sendReq(t, client, ts.URL, jobUUID, csrf)
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("ponowienie: oczekiwano 200, otrzymano %d", second.StatusCode)
+	}
+
+	_ = second.Body.Close()
+
+	if mailer.docCalls != 1 {
+		t.Fatalf("dokument NIE powinien być wysłany ponownie, doc=%d", mailer.docCalls)
+	}
+
+	if mailer.pwCalls != 2 {
+		t.Fatalf("hasło powinno być próbowane 2 razy, pw=%d", mailer.pwCalls)
+	}
+}
+
 func TestJobSentIsReadOnly(t *testing.T) {
-	ts, st := newJobServer(t)
+	ts, st, _ := newJobServer(t)
 	client, csrf := loginClient(t, ts.URL, "userA")
 
 	resp, err := uploadPDF(t, client, ts.URL, csrf, "PROBKA-001", minimalPDF)

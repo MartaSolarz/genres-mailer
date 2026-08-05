@@ -14,18 +14,24 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type Mailer interface {
+	SendDocument(to string, attachment []byte, filename string) error
+	SendPassword(to, password string) error
+}
+
 type Server struct {
 	cfg       *config.Config
 	store     *store.Store
 	sessions  *auth.SessionStore
 	limiter   *auth.RateLimiter
+	mailer    Mailer
 	logger    *slog.Logger
 	tmpl      *template.Template
 	staticFS  fs.FS
 	dummyHash []byte
 }
 
-func NewServer(cfg *config.Config, st *store.Store, sessions *auth.SessionStore, limiter *auth.RateLimiter, logger *slog.Logger) (*Server, error) {
+func NewServer(cfg *config.Config, st *store.Store, sessions *auth.SessionStore, limiter *auth.RateLimiter, mailer Mailer, logger *slog.Logger) (*Server, error) {
 	tmpl, err := template.ParseFS(web.TemplatesFS, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parsowanie szablonów: %w", err)
@@ -46,6 +52,7 @@ func NewServer(cfg *config.Config, st *store.Store, sessions *auth.SessionStore,
 		store:     st,
 		sessions:  sessions,
 		limiter:   limiter,
+		mailer:    mailer,
 		logger:    logger,
 		tmpl:      tmpl,
 		staticFS:  staticFS,
@@ -63,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs/{uuid}/preview", s.handlePreview)
 	mux.HandleFunc("GET /api/jobs/{uuid}/download", s.handleDownload)
 	mux.HandleFunc("GET /api/jobs/{uuid}/password", s.handlePassword)
+	mux.HandleFunc("POST /api/jobs/{uuid}/send", s.handleSend)
 	mux.HandleFunc("DELETE /api/jobs/{uuid}", s.handleDeleteJob)
 
 	appChain := s.sessionMiddleware(s.csrfMiddleware(s.authMiddleware(mux)))
@@ -145,7 +153,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Status:     statusLabel(j.Status),
 			StatusRaw:  j.Status,
 			Created:    j.CreatedAt.Local().Format("2006-01-02 15:04"),
-			Actionable: j.Status == "encrypted",
+			Actionable: j.Status == "encrypted" || j.Status == "partial",
 			CanDelete:  j.Status != "sent",
 		})
 	}
@@ -162,6 +170,8 @@ func statusLabel(status string) string {
 	switch status {
 	case "encrypted":
 		return "Zaszyfrowany"
+	case "partial":
+		return "Wysyłka niepełna"
 	case "sent":
 		return "Wysłany"
 	case "expired":

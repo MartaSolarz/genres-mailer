@@ -14,6 +14,7 @@ import (
 	"github.com/msolarzwebsensa/genres-mailer/internal/auth"
 	"github.com/msolarzwebsensa/genres-mailer/internal/config"
 	"github.com/msolarzwebsensa/genres-mailer/internal/handlers"
+	"github.com/msolarzwebsensa/genres-mailer/internal/mail"
 	"github.com/msolarzwebsensa/genres-mailer/internal/store"
 )
 
@@ -53,7 +54,17 @@ func run(logger *slog.Logger) error {
 	sessions := auth.NewSessionStore(cfg.SessionTTL())
 	limiter := auth.NewRateLimiter(5, 15*time.Minute)
 
-	srvHandlers, err := handlers.NewServer(cfg, st, sessions, limiter, logger)
+	sender := mail.NewSender(mail.Config{
+		Host:    cfg.SMTPHost,
+		Port:    cfg.SMTPPort,
+		User:    cfg.SMTPUser,
+		Pass:    cfg.SMTPPass,
+		From:    cfg.SMTPFrom,
+		OrgName: cfg.OrgName,
+		Timeout: cfg.SMTPTimeout(),
+	})
+
+	srvHandlers, err := handlers.NewServer(cfg, st, sessions, limiter, sender, logger)
 	if err != nil {
 		return fmt.Errorf("inicjalizacja serwera HTTP: %w", err)
 	}
@@ -62,6 +73,11 @@ func run(logger *slog.Logger) error {
 	go runSessionGC(sessions, stopGC)
 
 	defer close(stopGC)
+
+	stopCleanup := make(chan struct{})
+	go runCleanup(st, logger, cfg.DataDir, stopCleanup)
+
+	defer close(stopCleanup)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -117,5 +133,56 @@ func runSessionGC(sessions *auth.SessionStore, stop <-chan struct{}) {
 		case <-stop:
 			return
 		}
+	}
+}
+
+func runCleanup(st *store.Store, logger *slog.Logger, dataDir string, stop <-chan struct{}) {
+	cleanupExpired(st, logger, dataDir)
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			cleanupExpired(st, logger, dataDir)
+		case <-stop:
+			return
+		}
+	}
+}
+
+// cleanupExpired usuwa pliki i zeruje hasła jobów po terminie retencji.
+// Dokumenty wysłane zachowują status "sent" (są tylko wpisem w historii);
+// pozostałe (niewysłane) otrzymują status "expired".
+func cleanupExpired(st *store.Store, logger *slog.Logger, dataDir string) {
+	ctx := context.Background()
+
+	jobs, err := st.ListExpired(ctx, time.Now())
+	if err != nil {
+		logger.Error("sprzątanie: pobranie listy nie powiodło się", "error", err)
+
+		return
+	}
+
+	for _, j := range jobs {
+		if j.EncryptedPath != "" {
+			if rerr := os.Remove(j.EncryptedPath); rerr != nil && !os.IsNotExist(rerr) {
+				logger.Warn("sprzątanie: nie udało się usunąć pliku", "job", j.UUID, "error", rerr)
+			}
+		}
+
+		newStatus := "expired"
+		if j.Status == "sent" {
+			newStatus = "sent"
+		}
+
+		if uerr := st.MarkCleaned(ctx, j.UUID, newStatus); uerr != nil {
+			logger.Error("sprzątanie: aktualizacja joba nie powiodła się", "job", j.UUID, "error", uerr)
+		}
+	}
+
+	if len(jobs) > 0 {
+		logger.Info("sprzątanie zakończone", "count", len(jobs), "data_dir", dataDir)
 	}
 }

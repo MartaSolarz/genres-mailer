@@ -462,6 +462,11 @@ select:focus {
     color: var(--accent);
 }
 
+.badge-partial {
+    background: rgba(191, 135, 0, 0.14);
+    color: #9a6700;
+}
+
 .badge-sent {
     background: rgba(26, 127, 55, 0.12);
     color: #1a7f37;

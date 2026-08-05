@@ -42,6 +42,11 @@ linters:
         text: "G304|G703"
         linters:
           - gosec
+      # Szablony wiadomości, nie zaszyte poświadczenia.
+      - path: internal/mail/templates.go
+        text: "G101"
+        linters:
+          - gosec
 
 formatters:
   enable:

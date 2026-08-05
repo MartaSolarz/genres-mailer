@@ -226,6 +226,103 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	sess := SessionFromContext(r.Context())
+	reqID := RequestID(r.Context())
+	uuid := r.PathValue("uuid")
+
+	job, err := s.store.GetJob(r.Context(), uuid)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "Nie znaleziono", http.StatusNotFound)
+
+			return
+		}
+
+		s.serverError(w, reqID, "pobranie joba", err)
+
+		return
+	}
+
+	if job.Status == "sent" {
+		s.writeJSONError(w, http.StatusConflict, "Dokument został już wysłany.")
+
+		return
+	}
+
+	if job.Status != "encrypted" && job.Status != "partial" {
+		s.writeJSONError(w, http.StatusConflict, "Dokument nie jest gotowy do wysłania.")
+
+		return
+	}
+
+	sample, err := s.store.GetSample(r.Context(), job.SampleID)
+	if err != nil {
+		s.serverError(w, reqID, "pobranie próbki", err)
+
+		return
+	}
+
+	password, err := appcrypto.Open(s.cfg.AppSecretKey, job.PasswordEncrypted)
+	if err != nil {
+		s.serverError(w, reqID, "odszyfrowanie hasła", err)
+
+		return
+	}
+
+	// Mail 1 (dokument) wysyłamy tylko gdy nie został jeszcze wysłany — status
+	// "partial" oznacza, że dokument już poszedł i ponawiamy wyłącznie hasło.
+	if job.Status == "encrypted" {
+		data, rerr := os.ReadFile(job.EncryptedPath)
+		if rerr != nil {
+			s.serverError(w, reqID, "odczyt zaszyfrowanego pliku", rerr)
+
+			return
+		}
+
+		if merr := s.mailer.SendDocument(sample.RecipientEmail, data, "dokument.pdf"); merr != nil {
+			s.logger.Error("wysyłka dokumentu nie powiodła się",
+				"request_id", reqID, "job", uuid, "error", merr)
+			s.writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": "Nie udało się wysłać dokumentu. Spróbuj ponownie.",
+				"stage": "document",
+			})
+
+			return
+		}
+
+		if uerr := s.store.UpdateJobStatus(r.Context(), uuid, "partial"); uerr != nil {
+			s.serverError(w, reqID, "zapis statusu partial", uerr)
+
+			return
+		}
+
+		s.auditAccess(r, "mail_document_sent", job)
+	}
+
+	if merr := s.mailer.SendPassword(sample.RecipientEmail, string(password)); merr != nil {
+		s.logger.Error("wysyłka hasła nie powiodła się",
+			"request_id", reqID, "job", uuid, "error", merr)
+		s.writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": "Dokument wysłano, ale nie udało się wysłać hasła. Ponów wysłanie hasła.",
+			"stage": "password",
+		})
+
+		return
+	}
+
+	if err := s.store.MarkJobSent(r.Context(), uuid, time.Now()); err != nil {
+		s.serverError(w, reqID, "oznaczenie joba jako wysłany", err)
+
+		return
+	}
+
+	s.auditAccess(r, "job_sent", job)
+	s.logger.Info("dokument wysłany",
+		"request_id", reqID, "user", sess.Username, "sample_id", job.SampleID, "job", uuid)
+	s.writeJSON(w, http.StatusOK, map[string]any{"status": "sent"})
+}
+
 func (s *Server) auditAccess(r *http.Request, action string, job *store.Job) {
 	sess := SessionFromContext(r.Context())
 	if err := s.store.InsertAudit(r.Context(), &sess.UserID, action, job.SampleID, job.UUID); err != nil {
@@ -278,9 +375,9 @@ func (s *Server) jobForRequest(w http.ResponseWriter, r *http.Request) (*store.J
 		return nil, false
 	}
 
-	// Treść dokumentu (podgląd/pobranie/hasło) jest dostępna wyłącznie do czasu
-	// wysyłki. Po wysłaniu lub wygaśnięciu dokument jest tylko wpisem w historii.
-	if job.Status != "encrypted" {
+	// Treść dokumentu (podgląd/pobranie/hasło) jest dostępna do czasu wysyłki.
+	// Po wysłaniu lub wygaśnięciu dokument jest już tylko wpisem w historii.
+	if job.Status != "encrypted" && job.Status != "partial" {
 		http.Error(w, "Dokument nie jest już dostępny do podglądu.", http.StatusForbidden)
 
 		return nil, false
